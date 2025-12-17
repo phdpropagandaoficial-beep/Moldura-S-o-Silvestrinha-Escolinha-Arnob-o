@@ -5,101 +5,236 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Foto com Moldura</title>
   <style>
-    body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      padding: 18px;
-      background: #f5f5f5;
-    }
-    h2 { margin-bottom: 6px; }
-    button {
-      padding: 12px 16px;
-      margin-top: 12px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    canvas {
-      display: block;
-      max-width: 100%;
-      border-radius: 12px;
-      margin-top: 16px;
-      background: #000;
-    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; padding: 18px; background:#f5f5f5; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .card { background:#fff; padding:14px; border-radius:12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    label { font-size:14px; }
+    input[type="range"]{ width: 260px; }
+    button { padding:10px 14px; cursor:pointer; }
+    canvas { display:block; max-width:100%; border-radius:12px; background:#000; margin-top:12px; touch-action:none; }
+    .hint { font-size: 13px; color:#444; margin-top:8px; }
   </style>
 </head>
 <body>
+  <h2>Envie sua foto e ajuste dentro da moldura</h2>
 
-  <h2>Envie sua foto</h2>
-  <p>A imagem será gerada em <strong>1080×1920</strong></p>
+  <div class="card">
+    <div class="row">
+      <input id="photo" type="file" accept="image/*" />
+      <button id="center" disabled>Centralizar</button>
+      <button id="download" disabled>Baixar PNG</button>
+    </div>
 
-  <input id="photo" type="file" accept="image/*" />
-  <br>
-  <button id="download" disabled>Baixar imagem final</button>
+    <div class="row" style="margin-top:10px;">
+      <label for="zoom"><strong>Zoom</strong></label>
+      <input id="zoom" type="range" min="0.5" max="3" step="0.01" value="1" disabled />
+      <span id="zoomVal">1.00x</span>
+    </div>
 
-  <canvas id="canvas" width="1080" height="1920"></canvas>
+    <div class="hint">
+      • Arraste a foto para posicionar. • Use o controle de zoom (ou roda do mouse). • No celular: arraste com o dedo.
+    </div>
+
+    <canvas id="c" width="1080" height="1920"></canvas>
+  </div>
 
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const input = document.getElementById('photo');
-const downloadBtn = document.getElementById('download');
+const W = 1080, H = 1920;
 
-const FRAME_WIDTH = 1080;
-const FRAME_HEIGHT = 1920;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const input = document.getElementById('photo');
+const zoom = document.getElementById('zoom');
+const zoomVal = document.getElementById('zoomVal');
+const btnCenter = document.getElementById('center');
+const btnDownload = document.getElementById('download');
 
 const frame = new Image();
 frame.src = 'frame.png';
 
-let userImage = null;
+let img = null;
 
-// função estilo "background-size: cover"
-function drawCover(img, w, h) {
-  const iw = img.width;
-  const ih = img.height;
+// estado de transform
+let scale = 1;
+let baseScale = 1;     // escala mínima para "cobrir" a tela
+let offsetX = 0;       // deslocamento (em px no canvas)
+let offsetY = 0;
 
-  const scale = Math.max(w / iw, h / ih);
-  const sw = w / scale;
-  const sh = h / scale;
+let isDragging = false;
+let lastX = 0, lastY = 0;
 
-  const sx = (iw - sw) / 2;
-  const sy = (ih - sh) / 2;
+function clampOffsets() {
+  if (!img) return;
 
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+  // tamanho desenhado da imagem no canvas
+  const dw = img.width * baseScale * scale;
+  const dh = img.height * baseScale * scale;
+
+  // queremos sempre cobrir o canvas (sem deixar bordas vazias)
+  // então limitamos offset para não aparecer "preto"
+  const minX = W - dw;
+  const minY = H - dh;
+
+  // se a imagem for maior (normal), minX/minY serão negativos
+  // clamp: offsetX entre [minX, 0], offsetY entre [minY, 0]
+  offsetX = Math.min(0, Math.max(minX, offsetX));
+  offsetY = Math.min(0, Math.max(minY, offsetY));
+}
+
+function centerImage() {
+  if (!img) return;
+
+  const dw = img.width * baseScale * scale;
+  const dh = img.height * baseScale * scale;
+
+  offsetX = (W - dw) / 2;
+  offsetY = (H - dh) / 2;
+
+  clampOffsets();
+  render();
+}
+
+function computeBaseScaleCover() {
+  // baseScale garante que em scale=1 a imagem já "cobre" o canvas (modo cover)
+  const sx = W / img.width;
+  const sy = H / img.height;
+  baseScale = Math.max(sx, sy);
 }
 
 function render() {
-  if (!userImage || !frame.complete) return;
+  ctx.clearRect(0, 0, W, H);
 
-  ctx.clearRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+  if (img) {
+    clampOffsets();
+    const dw = img.width * baseScale * scale;
+    const dh = img.height * baseScale * scale;
+    ctx.drawImage(img, offsetX, offsetY, dw, dh);
+  } else {
+    // fundo simples enquanto não tem foto
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, W, H);
+  }
 
-  // foto do usuário
-  drawCover(userImage, FRAME_WIDTH, FRAME_HEIGHT);
-
-  // moldura por cima
-  ctx.drawImage(frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-
-  downloadBtn.disabled = false;
+  if (frame.complete) {
+    ctx.drawImage(frame, 0, 0, W, H);
+  }
 }
 
+function canvasPointFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+  const clientY = (e.touches ? e.touches[0].clientY : e.clientY);
+
+  // converter coordenadas da tela para coordenadas do canvas (W/H fixos)
+  const x = (clientX - rect.left) * (W / rect.width);
+  const y = (clientY - rect.top) * (H / rect.height);
+  return {x, y};
+}
+
+// Upload da foto
 input.addEventListener('change', () => {
-  const file = input.files[0];
+  const file = input.files?.[0];
   if (!file) return;
 
-  const img = new Image();
-  img.onload = () => {
-    userImage = img;
-    render();
+  const newImg = new Image();
+  newImg.onload = () => {
+    img = newImg;
+
+    scale = 1;
+    computeBaseScaleCover();
+
+    zoom.disabled = false;
+    btnCenter.disabled = false;
+    btnDownload.disabled = false;
+
+    // definir zoom mínimo para nunca "descobrir" o fundo
+    zoom.min = "1";
+    zoom.max = "3";
+    zoom.step = "0.01";
+    zoom.value = "1";
+    zoomVal.textContent = "1.00x";
+
+    centerImage();
   };
-  img.src = URL.createObjectURL(file);
+  newImg.src = URL.createObjectURL(file);
 });
 
+// Frame carregou
 frame.onload = render;
 
-downloadBtn.addEventListener('click', () => {
-  const link = document.createElement('a');
-  link.download = 'foto-com-moldura-1080x1920.png';
-  link.href = canvas.toDataURL('image/png');
-  link.click();
+// Slider de zoom
+zoom.addEventListener('input', () => {
+  scale = parseFloat(zoom.value);
+  zoomVal.textContent = ${scale.toFixed(2)}x;
+  render();
 });
+
+// Zoom com roda do mouse
+canvas.addEventListener('wheel', (e) => {
+  if (!img) return;
+  e.preventDefault();
+
+  const delta = Math.sign(e.deltaY) * -0.05; // rolar pra cima = zoom in
+  const next = Math.min(parseFloat(zoom.max), Math.max(parseFloat(zoom.min), scale + delta));
+
+  scale = next;
+  zoom.value = String(next);
+  zoomVal.textContent = ${scale.toFixed(2)}x;
+  render();
+}, { passive: false });
+
+// Drag (mouse)
+canvas.addEventListener('mousedown', (e) => {
+  if (!img) return;
+  isDragging = true;
+  const p = canvasPointFromEvent(e);
+  lastX = p.x; lastY = p.y;
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging || !img) return;
+  const p = canvasPointFromEvent(e);
+  offsetX += (p.x - lastX);
+  offsetY += (p.y - lastY);
+  lastX = p.x; lastY = p.y;
+  render();
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+// Drag (toque)
+canvas.addEventListener('touchstart', (e) => {
+  if (!img) return;
+  isDragging = true;
+  const p = canvasPointFromEvent(e);
+  lastX = p.x; lastY = p.y;
+}, { passive: true });
+
+canvas.addEventListener('touchmove', (e) => {
+  if (!isDragging || !img) return;
+  const p = canvasPointFromEvent(e);
+  offsetX += (p.x - lastX);
+  offsetY += (p.y - lastY);
+  lastX = p.x; lastY = p.y;
+  render();
+}, { passive: true });
+
+canvas.addEventListener('touchend', () => { isDragging = false; });
+
+// Centralizar
+btnCenter.addEventListener('click', () => centerImage());
+
+// Download
+btnDownload.addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.download = 'foto-com-moldura-1080x1920.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+});
+
+// render inicial
+render();
 </script>
 
 </body>
