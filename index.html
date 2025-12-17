@@ -1,54 +1,49 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Foto com Moldura</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moldura Interativa</title>
 
-  <style>
-    body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      background: #f5f5f5;
-      padding: 16px;
-    }
-    h2 { margin-bottom: 8px; }
-
-    .card {
-      background: #fff;
-      padding: 14px;
-      border-radius: 14px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.08);
-    }
-
-    canvas {
-      display: block;
-      max-width: 100%;
-      background: #000;
-      border-radius: 12px;
-      margin-top: 12px;
-      touch-action: none;
-    }
-
-    button {
-      padding: 10px 14px;
-      margin-top: 8px;
-      cursor: pointer;
-    }
-
-    .hint {
-      font-size: 13px;
-      color: #444;
-      margin-top: 8px;
-    }
-  </style>
+<style>
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    background:#f5f5f5;
+    padding:16px;
+  }
+  .card {
+    background:#fff;
+    padding:14px;
+    border-radius:14px;
+    box-shadow:0 2px 10px rgba(0,0,0,.08);
+  }
+  canvas {
+    display:block;
+    max-width:100%;
+    background:#000;
+    border-radius:12px;
+    margin-top:12px;
+    touch-action:none;
+  }
+  button {
+    padding:10px 14px;
+    margin-top:8px;
+    cursor:pointer;
+  }
+  .hint {
+    font-size:13px;
+    color:#444;
+    margin-top:8px;
+  }
+</style>
 </head>
+
 <body>
 
 <h2>Envie sua foto e ajuste</h2>
 
 <div class="card">
-  <input id="photo" type="file" accept="image/*" />
-  <br>
+  <input id="photo" type="file" accept="image/*"><br>
   <button id="download" disabled>Baixar imagem</button>
 
   <div class="hint">
@@ -65,39 +60,37 @@ const H = 1920;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-
 const input = document.getElementById('photo');
-const btnDownload = document.getElementById('download');
+const downloadBtn = document.getElementById('download');
 
 const frame = new Image();
 frame.src = 'frame.png';
 
 let img = null;
 
-// transformação
+// estado de transformação
 let baseScale = 1;
 let scale = 1;
 let offsetX = 0;
 let offsetY = 0;
 
-// touch state
-let isDragging = false;
-let lastTouchX = 0;
-let lastTouchY = 0;
-
-let pinchStartDist = 0;
-let pinchStartScale = 1;
-let lastCenterX = 0;
-let lastCenterY = 0;
+// touch
+let lastX = 0;
+let lastY = 0;
+let lastDist = 0;
+let lastCenter = null;
 
 // utilidades
-function distance(t1, t2) {
-  const dx = t2.clientX - t1.clientX;
-  const dy = t2.clientY - t1.clientY;
-  return Math.hypot(dx, dy);
+function getCanvasScale() {
+  const r = canvas.getBoundingClientRect();
+  return { sx: W / r.width, sy: H / r.height };
 }
 
-function getCenter(t1, t2) {
+function distance(t1, t2) {
+  return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+}
+
+function center(t1, t2) {
   return {
     x: (t1.clientX + t2.clientX) / 2,
     y: (t1.clientY + t2.clientY) / 2
@@ -105,16 +98,20 @@ function getCenter(t1, t2) {
 }
 
 function clamp() {
-  if (!img) return;
-
   const dw = img.width * baseScale * scale;
   const dh = img.height * baseScale * scale;
 
-  const minX = W - dw;
-  const minY = H - dh;
+  if (dw > W) {
+    offsetX = Math.min(0, Math.max(W - dw, offsetX));
+  } else {
+    offsetX = (W - dw) / 2;
+  }
 
-  offsetX = Math.min(0, Math.max(minX, offsetX));
-  offsetY = Math.min(0, Math.max(minY, offsetY));
+  if (dh > H) {
+    offsetY = Math.min(0, Math.max(H - dh, offsetY));
+  } else {
+    offsetY = (H - dh) / 2;
+  }
 }
 
 function render() {
@@ -122,9 +119,13 @@ function render() {
 
   if (img) {
     clamp();
-    const dw = img.width * baseScale * scale;
-    const dh = img.height * baseScale * scale;
-    ctx.drawImage(img, offsetX, offsetY, dw, dh);
+    ctx.drawImage(
+      img,
+      offsetX,
+      offsetY,
+      img.width * baseScale * scale,
+      img.height * baseScale * scale
+    );
   }
 
   if (frame.complete) {
@@ -132,107 +133,87 @@ function render() {
   }
 }
 
-function setupImage(image) {
-  img = image;
-
-  const sx = W / img.width;
-  const sy = H / img.height;
-  baseScale = Math.max(sx, sy);
-
-  scale = 1;
-
-  const dw = img.width * baseScale;
-  const dh = img.height * baseScale;
-
-  offsetX = (W - dw) / 2;
-  offsetY = (H - dh) / 2;
-
-  btnDownload.disabled = false;
-  render();
-}
-
 // upload
 input.addEventListener('change', () => {
-  const file = input.files?.[0];
+  const file = input.files[0];
   if (!file) return;
 
   const image = new Image();
-  image.onload = () => setupImage(image);
+  image.onload = () => {
+    img = image;
+
+    baseScale = Math.max(W / img.width, H / img.height);
+    scale = 1;
+
+    offsetX = (W - img.width * baseScale) / 2;
+    offsetY = (H - img.height * baseScale) / 2;
+
+    downloadBtn.disabled = false;
+    render();
+  };
   image.src = URL.createObjectURL(file);
 });
 
-// TOUCH EVENTS
+// touchstart
 canvas.addEventListener('touchstart', (e) => {
   if (!img) return;
+  e.preventDefault();
 
   if (e.touches.length === 1) {
-    isDragging = true;
-    lastTouchX = e.touches[0].clientX;
-    lastTouchY = e.touches[0].clientY;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
   }
 
   if (e.touches.length === 2) {
-    isDragging = false;
-
-    pinchStartDist = distance(e.touches[0], e.touches[1]);
-    pinchStartScale = scale;
-
-    const center = getCenter(e.touches[0], e.touches[1]);
-    lastCenterX = center.x;
-    lastCenterY = center.y;
+    lastDist = distance(e.touches[0], e.touches[1]);
+    lastCenter = center(e.touches[0], e.touches[1]);
   }
 }, { passive:false });
 
+// touchmove
 canvas.addEventListener('touchmove', (e) => {
   if (!img) return;
   e.preventDefault();
 
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  const scaleY = H / rect.height;
+  const { sx, sy } = getCanvasScale();
 
-  // 1 dedo = mover
-  if (e.touches.length === 1 && isDragging) {
-    const dx = (e.touches[0].clientX - lastTouchX) * scaleX;
-    const dy = (e.touches[0].clientY - lastTouchY) * scaleY;
+  // 1 dedo → mover livre
+  if (e.touches.length === 1) {
+    const dx = (e.touches[0].clientX - lastX) * sx;
+    const dy = (e.touches[0].clientY - lastY) * sy;
 
     offsetX += dx;
     offsetY += dy;
 
-    lastTouchX = e.touches[0].clientX;
-    lastTouchY = e.touches[0].clientY;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
 
     render();
   }
 
-  // 2 dedos = zoom + mover
+  // 2 dedos → zoom + mover
   if (e.touches.length === 2) {
-    const dist = distance(e.touches[0], e.touches[1]);
-    scale = pinchStartScale * (dist / pinchStartDist);
+    const newDist = distance(e.touches[0], e.touches[1]);
+    const factor = newDist / lastDist;
+
+    scale *= factor;
     scale = Math.max(1, Math.min(3, scale));
 
-    const center = getCenter(e.touches[0], e.touches[1]);
-    const dx = (center.x - lastCenterX) * scaleX;
-    const dy = (center.y - lastCenterY) * scaleY;
+    const newCenter = center(e.touches[0], e.touches[1]);
+    offsetX += (newCenter.x - lastCenter.x) * sx;
+    offsetY += (newCenter.y - lastCenter.y) * sy;
 
-    offsetX += dx;
-    offsetY += dy;
-
-    lastCenterX = center.x;
-    lastCenterY = center.y;
+    lastDist = newDist;
+    lastCenter = newCenter;
 
     render();
   }
 }, { passive:false });
 
-canvas.addEventListener('touchend', () => {
-  isDragging = false;
-});
-
 // download
-btnDownload.addEventListener('click', () => {
+downloadBtn.addEventListener('click', () => {
   const a = document.createElement('a');
-  a.download = 'foto-com-moldura-1080x1920.png';
+  a.download = 'foto-com-moldura.png';
   a.href = canvas.toDataURL('image/png');
   a.click();
 });
@@ -243,3 +224,4 @@ render();
 
 </body>
 </html>
+
