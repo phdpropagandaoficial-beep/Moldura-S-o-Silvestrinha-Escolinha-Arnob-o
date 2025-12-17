@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Foto com Moldura</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      padding: 18px;
+      background: #f5f5f5;
+    }
+    h2 { margin-bottom: 6px; }
+    button {
+      padding: 12px 16px;
+      margin-top: 12px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    canvas {
+      display: block;
+      max-width: 100%;
+      border-radius: 12px;
+      margin-top: 16px;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Envie sua foto</h2>
+  <p>A imagem será gerada em <strong>1080×1920</strong></p>
+
+  <input id="photo" type="file" accept="image/*" />
+  <br>
+  <button id="download" disabled>Baixar imagem final</button>
+
+  <canvas id="canvas" width="1080" height="1920"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const input = document.getElementById('photo');
+const downloadBtn = document.getElementById('download');
+
+const FRAME_WIDTH = 1080;
+const FRAME_HEIGHT = 1920;
+
+const frame = new Image();
+frame.src = 'frame.png';
+
+let userImage = null;
+
+// função estilo "background-size: cover"
+function drawCover(img, w, h) {
+  const iw = img.width;
+  const ih = img.height;
+
+  const scale = Math.max(w / iw, h / ih);
+  const sw = w / scale;
+  const sh = h / scale;
+
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) / 2;
+
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+}
+
+function render() {
+  if (!userImage || !frame.complete) return;
+
+  ctx.clearRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+
+  // foto do usuário
+  drawCover(userImage, FRAME_WIDTH, FRAME_HEIGHT);
+
+  // moldura por cima
+  ctx.drawImage(frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+
+  downloadBtn.disabled = false;
+}
+
+input.addEventListener('change', () => {
+  const file = input.files[0];
+  if (!file) return;
+
+  const img = new Image();
+  img.onload = () => {
+    userImage = img;
+    render();
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+frame.onload = render;
+
+downloadBtn.addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'foto-com-moldura-1080x1920.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+});
+</script>
+
+</body>
+</html>
